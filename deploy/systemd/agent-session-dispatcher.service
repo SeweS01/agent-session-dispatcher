@@ -1,0 +1,16 @@
+[Unit]
+Description=Agent Session Dispatcher Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/agent-session-dispatcher/dispatcher.env
+ExecStart=%h/.local/bin/agent-session-dispatcher run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

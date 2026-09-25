@@ -1,0 +1,1 @@
+"""Structured transcript provider adapters."""
