@@ -32,7 +32,8 @@ class StateStore:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     added_at INTEGER NOT NULL,
-                    last_selected_at INTEGER
+                    last_selected_at INTEGER,
+                    display_name TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS app_state (
@@ -51,6 +52,12 @@ class StateStore:
                 );
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in self._connection.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "display_name" not in columns:
+                self._connection.execute("ALTER TABLE sessions ADD COLUMN display_name TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -86,7 +93,7 @@ class StateStore:
         with self._lock:
             rows = self._connection.execute(
                 """
-                SELECT id, name, added_at, last_selected_at
+                SELECT id, name, added_at, last_selected_at, display_name
                 FROM sessions
                 ORDER BY COALESCE(last_selected_at, 0) DESC, name COLLATE NOCASE
                 """
@@ -96,7 +103,10 @@ class StateStore:
     def get_session(self, session_id: int) -> SavedSession | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT id, name, added_at, last_selected_at FROM sessions WHERE id = ?",
+                """
+                SELECT id, name, added_at, last_selected_at, display_name
+                FROM sessions WHERE id = ?
+                """,
                 (session_id,),
             ).fetchone()
         return self._row_to_session(row) if row is not None else None
@@ -104,7 +114,10 @@ class StateStore:
     def get_session_by_name(self, name: str) -> SavedSession | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT id, name, added_at, last_selected_at FROM sessions WHERE name = ?",
+                """
+                SELECT id, name, added_at, last_selected_at, display_name
+                FROM sessions WHERE name = ?
+                """,
                 (name,),
             ).fetchone()
         return self._row_to_session(row) if row is not None else None
@@ -117,7 +130,18 @@ class StateStore:
             name=str(row["name"]),
             added_at=int(row["added_at"]),
             last_selected_at=int(selected) if selected is not None else None,
+            display_name=str(row["display_name"]) if row["display_name"] is not None else None,
         )
+
+    def set_display_name(self, session_id: int, display_name: str | None) -> SavedSession | None:
+        with self._lock, self._connection:
+            result = self._connection.execute(
+                "UPDATE sessions SET display_name = ? WHERE id = ?",
+                (display_name, session_id),
+            )
+        if result.rowcount == 0:
+            return None
+        return self.get_session(session_id)
 
     def active_session(self) -> str | None:
         with self._lock:

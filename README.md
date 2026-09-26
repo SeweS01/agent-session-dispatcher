@@ -10,6 +10,7 @@ center, a web API, or a shared Python package.
 ## What it does
 
 - Saves exact tmux session names chosen by the operator.
+- Lets the operator assign a durable, human-readable label without renaming tmux.
 - Shows saved sessions as online or offline.
 - Routes ordinary private-chat text to one selected session at a time.
 - Binds that tmux pane to the rollout JSONL opened by its Codex process through `/proc/<pid>/fd`.
@@ -53,6 +54,8 @@ After setup, open the new bot in a private chat and use `/add` to select an exis
 - `/sessions` — saved session cards
 - `/add [exact_name]` — discover or add an exact live tmux name
 - `/current` — selected session and transcript status
+- `/rename [new label]` — rename the active card; use `-` to restore its tmux name
+- `/cancel` — cancel an interactive rename
 - `/disconnect` — stop routing ordinary messages
 - `/remove <exact_name>` — remove a saved card; the tmux session is untouched
 - `/help` — concise help

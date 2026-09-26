@@ -25,6 +25,11 @@ class SavedSession:
     name: str
     added_at: int
     last_selected_at: int | None
+    display_name: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.display_name or self.name
 
 
 @dataclass(frozen=True)

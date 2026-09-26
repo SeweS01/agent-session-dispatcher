@@ -27,13 +27,17 @@ Selected tmux pane PID
   -> Owner private chat
 ```
 
-SQLite stores only session names, the active selection, and rollout read cursors. It does not
-store transcripts, prompts, agent answers, provider credentials, or Telegram tokens.
+SQLite stores only session names, optional display labels, the active selection, and rollout read
+cursors. It does not store transcripts, prompts, agent answers, provider credentials, or Telegram
+tokens.
 
 ## Identity
 
 The exact tmux session name is the sole durable agent identity. A typical operator convention is
 `Client_Project_Specialist`.
+
+An optional display label is presentation metadata only. Renaming a card never changes its exact
+tmux identity, active selection, rollout binding, or cursor.
 
 - No process or transcript fingerprint is exposed as identity.
 - If a name disappears, its card is offline.
