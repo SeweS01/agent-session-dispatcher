@@ -16,6 +16,8 @@ Owner private chat
   -> Telegram adapter and owner/private-chat gate
   -> durable saved-session catalog
   -> active exact tmux name
+  -> text or validated private image attachment
+  -> Codex input formatter
   -> safe tmux input transport
 
 Selected tmux pane PID
@@ -81,6 +83,12 @@ that the payload left the input bar.
 
 An ambiguous result is reported without blindly pasting the message again. Pane content is neither
 sent to Telegram nor stored.
+
+Telegram photos and image documents are accepted only after a 20 MB bound and JPEG, PNG, or WebP
+signature validation. The dispatcher stores them under its mode `0700` state directory with mode
+`0600`, uses unguessable generated names, and removes files older than 24 hours. The Codex adapter
+formats a prompt containing the absolute local path and an explicit `view_image` instruction. The
+exact tmux name remains the routing identity; media never changes session selection.
 
 ## Security boundary
 

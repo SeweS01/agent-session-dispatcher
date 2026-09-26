@@ -10,6 +10,7 @@ import hashlib
 import json
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from agent_session_dispatcher.domain import AssistantOutput, AssistantPhase
@@ -142,3 +143,20 @@ class OutputDeduplicator:
         while len(self._digest_order) > self.limit:
             self._digests.discard(self._digest_order.popleft())
         return False
+
+
+def format_image_prompt(path: Path, caption: str = "") -> str:
+    """Build the Codex-specific instruction for an image stored on the local filesystem."""
+    lines = [
+        "Пользователь отправил изображение из Telegram.",
+        f"Локальный файл: {path}",
+        "Сначала вызови инструмент view_image для указанного пути, затем ответь "
+        "на сообщение пользователя.",
+    ]
+    if caption.strip():
+        lines.extend(["Подпись пользователя:", caption.strip()])
+    else:
+        lines.append(
+            "Подпись отсутствует: опиши или проанализируй изображение по контексту диалога."
+        )
+    return "\n".join(lines)

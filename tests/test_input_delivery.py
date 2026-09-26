@@ -73,6 +73,34 @@ async def test_safe_send_never_presses_enter_into_modal() -> None:
 
 
 @pytest.mark.asyncio
+async def test_safe_send_stops_at_new_codex_folder_trust_modal() -> None:
+    modal = "Trust this folder?\n\n1. Trust and continue\n2. Quit\n\nenter continue"
+    tmux = FakeTmux([modal])
+    sender = SafeInputSender(tmux)  # type: ignore[arg-type]
+
+    result = await sender.send("client_project_agent", "do it")
+
+    assert result.delivered is False
+    assert result.code == "modal"
+    assert tmux.pastes == []
+    assert tmux.enters == 0
+
+
+@pytest.mark.asyncio
+async def test_safe_send_stops_at_codex_hooks_review_modal() -> None:
+    modal = "Hooks need review\n1. Review hooks\n2. Trust all\n3. Continue without trusting"
+    tmux = FakeTmux([modal])
+    sender = SafeInputSender(tmux)  # type: ignore[arg-type]
+
+    result = await sender.send("client_project_agent", "do it")
+
+    assert result.delivered is False
+    assert result.code == "modal"
+    assert tmux.pastes == []
+    assert tmux.enters == 0
+
+
+@pytest.mark.asyncio
 async def test_unconfirmed_paste_is_not_retried() -> None:
     idle = "› \n\ngpt-5 default model"
     tmux = FakeTmux([idle, idle])

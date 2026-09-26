@@ -23,6 +23,8 @@ _MODAL_MARKERS = (
     "allow command",
     "approval required",
     "do you trust the contents of this directory",
+    "trust this folder?",
+    "hooks need review",
     "select model and effort",
     "press enter to confirm",
     "press enter to continue",

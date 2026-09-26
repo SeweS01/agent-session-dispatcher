@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     def database_path(self) -> Path:
         return self.data_dir / "dispatcher.sqlite3"
 
+    @property
+    def attachments_dir(self) -> Path:
+        return self.data_dir / "attachments"
+
     def require_bot_credentials(self) -> None:
         if not self.telegram_bot_token:
             raise ValueError("DISPATCHER_TELEGRAM_BOT_TOKEN is required")

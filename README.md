@@ -13,6 +13,8 @@ center, a web API, or a shared Python package.
 - Lets the operator assign a durable, human-readable label without renaming tmux.
 - Shows saved sessions as online or offline.
 - Routes ordinary private-chat text to one selected session at a time.
+- Downloads owner-sent JPEG, PNG, and WebP images into private temporary storage and asks the
+  selected Codex agent to open them with `view_image`.
 - Binds that tmux pane to the rollout JSONL opened by its Codex process through `/proc/<pid>/fd`.
 - Delivers qualified `commentary` and `final_answer` assistant messages only.
 - Filters reasoning, tool traffic, system/developer records, user echoes, and unknown schemas.
@@ -48,6 +50,8 @@ agent-session-dispatcher doctor
 systemd service. Never paste the token into Telegram or commit the generated file.
 
 After setup, open the new bot in a private chat and use `/add` to select an existing tmux session.
+Photos and supported image documents are limited to 20 MB and expire from local storage after 24
+hours.
 
 ## Telegram commands
 

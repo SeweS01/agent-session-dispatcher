@@ -3,6 +3,7 @@ import pytest
 from agent_session_dispatcher.domain import SavedSession
 from agent_session_dispatcher.telegram_app import (
     _chunks,
+    _is_image_document,
     _live_token,
     _normalize_display_name,
     _session_identity,
@@ -45,3 +46,10 @@ def test_session_identity_keeps_display_and_tmux_names_separate() -> None:
         "Активная сессия: TTUZ — специалист AmoCRM\nTmux: TTUZ_managers-conversation_AmoCRM"
     )
     assert _short_label("x" * 60, limit=10) == "xxxxxxxxx…"
+
+
+def test_image_document_filter_accepts_only_supported_raster_formats() -> None:
+    assert _is_image_document("image/png", "screen.bin") is True
+    assert _is_image_document("application/octet-stream", "screen.webp") is True
+    assert _is_image_document("application/pdf", "screen.png") is False
+    assert _is_image_document("image/svg+xml", "screen.svg") is False

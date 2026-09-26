@@ -10,5 +10,9 @@ The security boundary assumes:
 - only the configured Telegram owner may control the bot;
 - saved tmux names are operator-selected and not discovered automatically into the catalog.
 
+Image attachments are bounded to 20 MB, validated by file signature rather than filename alone,
+stored with generated names and mode `0600` inside a mode `0700` directory, and expired after 24
+hours. SVG and arbitrary Telegram documents are not accepted as images.
+
 The dispatcher intentionally has no commands to execute a shell, create sessions, kill sessions,
 or expose raw pane output.

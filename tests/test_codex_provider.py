@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from agent_session_dispatcher.domain import AssistantOutput, AssistantPhase
 from agent_session_dispatcher.providers.codex import (
     OutputDeduplicator,
     extract_assistant_output,
+    format_image_prompt,
     parse_line,
 )
 
@@ -82,3 +84,13 @@ def test_parse_lifecycle_and_deduplicates_paired_records() -> None:
     assert dedupe.is_duplicate(paired) is True
     dedupe.reset()
     assert dedupe.is_duplicate(paired) is False
+
+
+def test_image_prompt_requires_view_image_and_preserves_caption() -> None:
+    path = Path("/private/attachments/image.png")
+
+    prompt = format_image_prompt(path, "Что означает эта ошибка?")
+
+    assert str(path) in prompt
+    assert "view_image" in prompt
+    assert "Что означает эта ошибка?" in prompt

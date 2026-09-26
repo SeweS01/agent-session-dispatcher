@@ -21,7 +21,8 @@ cp -a ~/.local/state/agent-session-dispatcher ~/.local/state/agent-session-dispa
 systemctl --user start agent-session-dispatcher
 ```
 
-The state contains saved tmux names and cursors, not the Telegram token. The token is in
+The state contains saved tmux names, display labels, cursors, and image attachments that have not
+yet reached their 24-hour expiry. It does not contain the Telegram token. The token is in
 `~/.config/agent-session-dispatcher/dispatcher.env` and should be backed up separately with
 restricted permissions.
 

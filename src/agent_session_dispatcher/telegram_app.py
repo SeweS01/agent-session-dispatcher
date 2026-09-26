@@ -8,6 +8,7 @@ import hashlib
 import html
 import logging
 from collections.abc import Iterable
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ChatType, ParseMode
@@ -20,16 +21,26 @@ from aiogram.types import (
     Message,
 )
 
+from agent_session_dispatcher.attachments import (
+    MAX_IMAGE_BYTES,
+    AttachmentError,
+    AttachmentStore,
+    AttachmentTooLargeError,
+    UnsupportedImageError,
+)
 from agent_session_dispatcher.config import Settings
 from agent_session_dispatcher.domain import SavedSession
 from agent_session_dispatcher.follower import FollowerSupervisor, SessionFollower
 from agent_session_dispatcher.input_delivery import SafeInputSender
+from agent_session_dispatcher.providers.codex import format_image_prompt
 from agent_session_dispatcher.store import StateStore
 from agent_session_dispatcher.tmux import TmuxClient, TmuxError
 
 logger = logging.getLogger(__name__)
 
 _DISPLAY_NAME_LIMIT = 64
+_IMAGE_DOCUMENT_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_IMAGE_DOCUMENT_SUFFIXES = {".jpeg", ".jpg", ".png", ".webp"}
 
 
 def _chunks(text: str, limit: int = 3900) -> Iterable[str]:
@@ -70,6 +81,16 @@ def _session_identity(saved: SavedSession, *, heading: str = "Активная �
     return f"{heading}: {saved.name}"
 
 
+def _is_image_document(mime_type: str | None, file_name: str | None) -> bool:
+    normalized_mime = (mime_type or "").casefold()
+    suffix = Path(file_name or "").suffix.casefold()
+    if normalized_mime in _IMAGE_DOCUMENT_MIME_TYPES:
+        return True
+    return normalized_mime in {"", "application/octet-stream"} and suffix in (
+        _IMAGE_DOCUMENT_SUFFIXES
+    )
+
+
 class TelegramApplication:
     def __init__(self, settings: Settings, store: StateStore, tmux: TmuxClient) -> None:
         self.settings = settings
@@ -79,6 +100,7 @@ class TelegramApplication:
         self.dispatcher = Dispatcher()
         self.router = Router()
         self.sender = SafeInputSender(tmux)
+        self.attachments = AttachmentStore(settings.attachments_dir)
         self._routing_lock = asyncio.Lock()
         self.follower = SessionFollower(
             store,
@@ -137,7 +159,10 @@ class TelegramApplication:
         self.router.callback_query.register(self._select_callback, F.data.startswith("select:"))
         self.router.callback_query.register(self._discover_callback, F.data.startswith("discover:"))
         self.router.callback_query.register(self._rename_callback, F.data.startswith("rename:"))
+        self.router.message.register(self._photo_message, F.photo)
+        self.router.message.register(self._document_message, F.document)
         self.router.message.register(self._text_message, F.text)
+        self.router.message.register(self._unsupported_message)
 
     async def _start(self, message: Message) -> None:
         if not self._message_allowed(message):
@@ -161,7 +186,8 @@ class TelegramApplication:
             "/cancel — отменить ввод названия\n"
             "/disconnect — отключиться\n"
             "/remove <точное_имя> — удалить карточку\n\n"
-            "Обычный текст отправляется только в выбранную online-сессию."
+            "Текст, фотографии и изображения JPEG/PNG/WebP отправляются только "
+            "в выбранную online-сессию."
         )
 
     async def _sessions_command(self, message: Message) -> None:
@@ -346,6 +372,93 @@ class TelegramApplication:
         if not result.delivered:
             await message.answer(result.message)
 
+    async def _photo_message(self, message: Message) -> None:
+        if not self._message_allowed(message) or not message.photo:
+            return
+        photo = message.photo[-1]
+        await self._handle_image(
+            message,
+            file_id=photo.file_id,
+            declared_size=photo.file_size,
+            caption=message.caption or "",
+        )
+
+    async def _document_message(self, message: Message) -> None:
+        if not self._message_allowed(message) or message.document is None:
+            return
+        document = message.document
+        if not _is_image_document(document.mime_type, document.file_name):
+            await message.answer(
+                "Этот документ не является поддерживаемым изображением. "
+                "Отправьте JPEG, PNG или WebP."
+            )
+            return
+        await self._handle_image(
+            message,
+            file_id=document.file_id,
+            declared_size=document.file_size,
+            caption=message.caption or "",
+        )
+
+    async def _handle_image(
+        self,
+        message: Message,
+        *,
+        file_id: str,
+        declared_size: int | None,
+        caption: str,
+    ) -> None:
+        if self._rename_target_id is not None:
+            await message.answer(
+                "Сейчас ожидается название карточки. Изображение не отправлено агенту. "
+                "Введите название или используйте /cancel."
+            )
+            return
+        active = self.store.active_session()
+        saved = self.store.get_session_by_name(active) if active is not None else None
+        if saved is None:
+            await message.answer("Сначала выберите сессию: /sessions или /add.")
+            return
+        assert active is not None
+        try:
+            image = await self.attachments.download_image(self.bot, file_id, declared_size)
+        except AttachmentTooLargeError:
+            await message.answer(
+                f"Изображение слишком большое. Максимальный размер — "
+                f"{MAX_IMAGE_BYTES // (1024 * 1024)} МБ."
+            )
+            return
+        except UnsupportedImageError:
+            await message.answer("Файл не распознан как JPEG, PNG или WebP.")
+            return
+        except AttachmentError:
+            logger.warning("failed to store Telegram image", exc_info=True)
+            await message.answer("Не удалось скачать изображение из Telegram. Повторите попытку.")
+            return
+
+        prompt = format_image_prompt(image.path, caption)
+        async with self._routing_lock:
+            if self.store.active_session() != active:
+                result = None
+            else:
+                result = await self.sender.send(active, prompt)
+        if result is None:
+            await message.answer(
+                "Активная сессия изменилась во время загрузки. Изображение не отправлено."
+            )
+        elif not result.delivered:
+            await message.answer(result.message)
+        else:
+            await message.answer(f"Изображение передано агенту: {saved.label}.")
+
+    async def _unsupported_message(self, message: Message) -> None:
+        if not self._message_allowed(message):
+            return
+        await message.answer(
+            "Этот тип сообщения пока не поддерживается. Отправьте текст, фотографию "
+            "или изображение JPEG/PNG/WebP как документ."
+        )
+
     async def _add_exact(self, message: Message, name: str) -> None:
         try:
             names = await self.tmux.list_sessions()
@@ -491,6 +604,7 @@ class TelegramApplication:
             )
 
     async def run(self) -> None:
+        await asyncio.to_thread(self.attachments.cleanup_expired)
         await self.bot.set_my_commands(
             [
                 BotCommand(command="sessions", description="Сохранённые tmux-сессии"),
