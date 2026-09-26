@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from agent_session_dispatcher.domain import RolloutRef
-from agent_session_dispatcher.follower import SessionFollower
+from agent_session_dispatcher.follower import FollowerSupervisor, SessionFollower
 from agent_session_dispatcher.providers.codex import OutputDeduplicator
 from agent_session_dispatcher.store import StateStore
 
@@ -86,3 +87,37 @@ async def test_first_attach_starts_at_eof_then_resumes_without_duplicates(tmp_pa
     assert await restarted._read_available(name, rollout, offset, OutputDeduplicator()) == offset
     assert delivered == ["new"]
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_supervisor_restarts_failed_follower() -> None:
+    class StaticStore:
+        @staticmethod
+        def active_session() -> str:
+            return "Client_Project_AmoCRM"
+
+    class FlakyFollower:
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.running = asyncio.Event()
+
+        async def follow(self, _session_name: str) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("transient follower failure")
+            self.running.set()
+            await asyncio.Future()
+
+    follower = FlakyFollower()
+    supervisor = FollowerSupervisor(  # type: ignore[arg-type]
+        StaticStore(),
+        follower,  # type: ignore[arg-type]
+    )
+    task = asyncio.create_task(supervisor.run())
+
+    await asyncio.wait_for(follower.running.wait(), timeout=2)
+
+    assert follower.attempts == 2
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

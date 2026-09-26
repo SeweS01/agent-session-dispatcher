@@ -40,7 +40,8 @@ ExecStart={escaped_exec} --config {escaped_config} run
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
-PrivateTmp=true
+# PrivateTmp is intentionally disabled: tmux/Codex discovery must inspect the
+# existing user's process tree and open rollout file descriptors.
 
 [Install]
 WantedBy=default.target

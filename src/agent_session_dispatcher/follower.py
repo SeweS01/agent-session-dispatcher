@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -152,7 +151,10 @@ class FollowerSupervisor:
         try:
             while True:
                 selected = self.store.active_session()
-                if selected != self._active:
+                follower_stopped = selected is not None and (
+                    self._task is None or self._task.done()
+                )
+                if selected != self._active or follower_stopped:
                     await self._replace(selected)
                 await asyncio.sleep(0.2)
         except asyncio.CancelledError:
@@ -162,9 +164,15 @@ class FollowerSupervisor:
 
     async def _replace(self, session_name: str | None) -> None:
         if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            previous = self._active
+            if not self._task.done():
+                self._task.cancel()
+            try:
                 await self._task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("follower crashed for %s; restarting", previous)
             self._task = None
         self._active = session_name
         if session_name is not None:
