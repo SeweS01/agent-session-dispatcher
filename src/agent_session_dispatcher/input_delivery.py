@@ -16,6 +16,9 @@ from agent_session_dispatcher.tmux import TmuxClient, TmuxError
 _INPUT_MARKER = re.compile(r"^\s*›\s?(?P<rest>.*)$")
 _FOOTER = re.compile(r"\b(gpt-[\w.:-]+|default)\b.*\b(model|effort)\b|·\s*~?/")
 _PASTED = re.compile(r"\[(?:Pasted text #\d+(?: \+\d+ lines?)?|Pasted Content \d+ chars)\]", re.I)
+_EMPTY_INPUT_PLACEHOLDERS = {
+    "ask codex to do anything",
+}
 _MODAL_MARKERS = (
     "allow command",
     "approval required",
@@ -63,7 +66,10 @@ def input_bar_content(pane: str) -> str | None:
             if _FOOTER.search(continuation):
                 break
             parts.append(continuation[2:] if continuation.startswith("  ") else continuation)
-        return "\n".join(parts)
+        content = "\n".join(parts)
+        if _normalized(content).casefold() in _EMPTY_INPUT_PLACEHOLDERS:
+            return ""
+        return content
     return None
 
 

@@ -45,6 +45,20 @@ async def test_safe_send_verifies_paste_and_enter() -> None:
 
 
 @pytest.mark.asyncio
+async def test_safe_send_treats_codex_placeholder_as_empty_input() -> None:
+    idle = "› Ask Codex to do anything\n\nGPT-5.6-Sol high · ~/project"
+    pasted = "› Проверь отчёт\n\nGPT-5.6-Sol high · ~/project"
+    tmux = FakeTmux([idle, pasted, idle])
+    sender = SafeInputSender(tmux, paste_timeout=0.05, poll_interval=0)  # type: ignore[arg-type]
+
+    result = await sender.send("client_project_agent", "Проверь отчёт")
+
+    assert result.delivered is True
+    assert tmux.pastes == ["Проверь отчёт"]
+    assert tmux.enters == 1
+
+
+@pytest.mark.asyncio
 async def test_safe_send_never_presses_enter_into_modal() -> None:
     modal = "Allow command?\n\nEsc to cancel | Enter to confirm"
     tmux = FakeTmux([modal])
