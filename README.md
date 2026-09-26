@@ -20,6 +20,8 @@ center, a web API, or a shared Python package.
 - Filters reasoning, tool traffic, system/developer records, user echoes, and unknown schemas.
 - Resumes the same rollout cursor after a dispatcher restart without replaying old output.
 - Automatically recognizes a recreated tmux session with the same saved name.
+- Finds the rollout-bound Codex pane across every window in a saved tmux session; a temporary
+  shell or deployment window cannot receive chat input.
 
 It never creates, restarts, renames, or kills managed tmux sessions. Raw TUI output is never used
 as normal chat output.

@@ -5,11 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from agent_session_dispatcher.domain import RolloutRef
-from agent_session_dispatcher.tmux import TmuxClient
+from agent_session_dispatcher.tmux import TmuxClient, TmuxPane
+
+
+@dataclass(frozen=True)
+class RolloutBinding:
+    pane_id: str
+    pane_pid: int
+    rollout: RolloutRef
 
 
 def _proc_ppid(proc_root: Path, pid: int) -> int | None:
@@ -92,11 +100,34 @@ def open_rollouts_for_process_tree(root_pid: int, proc_root: Path = Path("/proc"
 
 
 async def resolve_rollout(tmux: TmuxClient, session_name: str) -> RolloutRef | None:
-    pid = await tmux.pane_pid(session_name)
-    paths = await asyncio.to_thread(open_rollouts_for_process_tree, pid)
-    if not paths:
+    binding = await resolve_binding(tmux, session_name)
+    return binding.rollout if binding is not None else None
+
+
+def find_rollout_binding(
+    panes: list[TmuxPane], proc_root: Path = Path("/proc")
+) -> RolloutBinding | None:
+    candidates: list[tuple[int, TmuxPane, Path]] = []
+    for pane in panes:
+        for path in open_rollouts_for_process_tree(pane.pane_pid, proc_root):
+            try:
+                modified = path.stat().st_mtime_ns
+            except OSError:
+                continue
+            candidates.append((modified, pane, path))
+    if not candidates:
         return None
+    _, pane, path = max(candidates, key=lambda item: item[0])
     try:
-        return RolloutRef.from_path(paths[0])
+        return RolloutBinding(
+            pane_id=pane.pane_id,
+            pane_pid=pane.pane_pid,
+            rollout=RolloutRef.from_path(path),
+        )
     except OSError:
         return None
+
+
+async def resolve_binding(tmux: TmuxClient, session_name: str) -> RolloutBinding | None:
+    panes = await tmux.list_panes(session_name)
+    return await asyncio.to_thread(find_rollout_binding, panes)

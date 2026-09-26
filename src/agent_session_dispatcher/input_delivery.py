@@ -9,8 +9,10 @@ from __future__ import annotations
 import asyncio
 import re
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from agent_session_dispatcher.rollout import resolve_binding
 from agent_session_dispatcher.tmux import TmuxClient, TmuxError
 
 _INPUT_MARKER = re.compile(r"^\s*›\s?(?P<rest>.*)$")
@@ -43,6 +45,14 @@ class DeliveryResult:
     delivered: bool
     code: str
     message: str
+
+
+PaneResolver = Callable[[TmuxClient, str], Awaitable[str | None]]
+
+
+async def _resolve_codex_pane(tmux: TmuxClient, session_name: str) -> str | None:
+    binding = await resolve_binding(tmux, session_name)
+    return binding.pane_id if binding is not None else None
 
 
 def modal_present(pane: str) -> bool:
@@ -126,11 +136,13 @@ class SafeInputSender:
         paste_timeout: float = 4.0,
         enter_attempts: int = 3,
         poll_interval: float = 0.15,
+        pane_resolver: PaneResolver = _resolve_codex_pane,
     ) -> None:
         self.tmux = tmux
         self.paste_timeout = paste_timeout
         self.enter_attempts = enter_attempts
         self.poll_interval = poll_interval
+        self.pane_resolver = pane_resolver
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def send(self, session_name: str, prompt: str) -> DeliveryResult:
@@ -143,7 +155,14 @@ class SafeInputSender:
         try:
             if not await self.tmux.has_session(session_name):
                 return DeliveryResult(False, "offline", "Выбранная tmux-сессия сейчас offline.")
-            before = await self.tmux.capture_pane(session_name)
+            pane_id = await self.pane_resolver(self.tmux, session_name)
+            if pane_id is None:
+                return DeliveryResult(
+                    False,
+                    "codex_not_found",
+                    "В выбранной tmux-сессии нет активной панели Codex. Сообщение не отправлено.",
+                )
+            before = await self.tmux.capture_pane(session_name, pane_id=pane_id)
             if modal_present(before):
                 return DeliveryResult(
                     False,
@@ -151,6 +170,12 @@ class SafeInputSender:
                     "В Codex открыто окно подтверждения. Закройте его в терминале и повторите.",
                 )
             existing = input_bar_content(before)
+            if existing is None:
+                return DeliveryResult(
+                    False,
+                    "composer_missing",
+                    "Поле ввода Codex не найдено. Сообщение не отправлено.",
+                )
             if existing and existing.strip():
                 return DeliveryResult(
                     False,
@@ -158,12 +183,12 @@ class SafeInputSender:
                     "В поле ввода Codex уже есть текст. Диспетчер не стал дописывать поверх него.",
                 )
 
-            await self.tmux.paste(session_name, prompt)
+            await self.tmux.paste(session_name, prompt, pane_id=pane_id)
             deadline = asyncio.get_running_loop().time() + self.paste_timeout
             observed = before
             while asyncio.get_running_loop().time() < deadline:
                 await asyncio.sleep(self.poll_interval)
-                observed = await self.tmux.capture_pane(session_name)
+                observed = await self.tmux.capture_pane(session_name, pane_id=pane_id)
                 if modal_present(observed):
                     return DeliveryResult(
                         False,
@@ -186,9 +211,9 @@ class SafeInputSender:
                         "modal_before_enter",
                         "Появилось окно подтверждения. Enter не отправлялся.",
                     )
-                await self.tmux.send_enter(session_name)
+                await self.tmux.send_enter(session_name, pane_id=pane_id)
                 await asyncio.sleep(self.poll_interval * 2)
-                observed = await self.tmux.capture_pane(session_name)
+                observed = await self.tmux.capture_pane(session_name, pane_id=pane_id)
                 if modal_present(observed):
                     return DeliveryResult(
                         False,

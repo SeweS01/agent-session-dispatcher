@@ -20,7 +20,9 @@ Owner private chat
   -> Codex input formatter
   -> safe tmux input transport
 
-Selected tmux pane PID
+All panes in the selected exact tmux session
+  -> pane whose process tree owns a top-level Codex rollout
+  -> exact tmux pane ID
   -> descendant process tree
   -> open rollout JSONL through /proc/<pid>/fd
   -> Codex provider adapter
@@ -54,12 +56,13 @@ replay and never require the operator to add a session again.
 Working directory and file modification time alone are ambiguous when multiple agents share a
 project folder. The dispatcher therefore:
 
-1. resolves the active pane PID for the exact tmux target `=name:`;
-2. walks only that process tree through `/proc`;
+1. enumerates every pane in the exact tmux target `=name:` across all its windows;
+2. walks each pane process tree through `/proc`;
 3. inspects only JSONL files opened by those processes;
 4. accepts only top-level `codex-tui` rollouts, excluding subagents;
-5. selects the most recently written qualifying open rollout when Codex temporarily retains more
-   than one file.
+5. binds input and output to the exact pane owning the most recently written qualifying open
+   rollout when the session contains multiple windows or Codex temporarily retains more than one
+   file.
 
 There is no global "newest rollout" or cwd fallback. Failure to prove the binding fails closed.
 
@@ -77,9 +80,10 @@ rollout, while attaching to an existing or recreated agent never floods old hist
 ## Input contract
 
 Input uses a unique named tmux buffer and bracketed paste. Before Enter, the dispatcher checks the
-live pane for a blocking dialog, refuses to append over existing composer text, verifies that the
-new payload or paste placeholder appeared, and checks again for a modal. After Enter it verifies
-that the payload left the input bar.
+exact rollout-bound pane for a blocking dialog, refuses to send if a Codex composer is absent,
+refuses to append over existing composer text, verifies that the new payload or paste placeholder
+appeared, and checks again for a modal. After Enter it verifies that the payload left the input
+bar. The currently active tmux window is never assumed to be the Codex window.
 
 An ambiguous result is reported without blindly pasting the message again. Pane content is neither
 sent to Telegram nor stored.

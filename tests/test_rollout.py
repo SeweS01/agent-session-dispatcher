@@ -5,9 +5,11 @@ import os
 from pathlib import Path
 
 from agent_session_dispatcher.rollout import (
+    find_rollout_binding,
     open_rollouts_for_process_tree,
     process_descendants,
 )
+from agent_session_dispatcher.tmux import TmuxPane
 
 
 def _fake_process(proc: Path, pid: int, ppid: int) -> Path:
@@ -41,6 +43,7 @@ def test_exact_process_tree_selects_newest_root_rollout(tmp_path: Path) -> None:
     root = _fake_process(proc, 100, 1)
     child = _fake_process(proc, 101, 100)
     _fake_process(proc, 999, 1)
+    _fake_process(proc, 888, 1)
 
     sessions = tmp_path / ".codex" / "sessions" / "2026" / "09" / "25"
     old = sessions / "rollout-old.jsonl"
@@ -59,6 +62,11 @@ def test_exact_process_tree_selects_newest_root_rollout(tmp_path: Path) -> None:
 
     assert process_descendants(100, proc) == {100, 101}
     assert open_rollouts_for_process_tree(100, proc) == [new, old]
+    binding = find_rollout_binding([TmuxPane("%8", 888), TmuxPane("%1", 100)], proc)
+    assert binding is not None
+    assert binding.pane_id == "%1"
+    assert binding.pane_pid == 100
+    assert binding.rollout.path == new
 
 
 def test_does_not_fallback_to_unrelated_rollout(tmp_path: Path) -> None:

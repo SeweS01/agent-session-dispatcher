@@ -7,6 +7,7 @@ targets (``=name:``), so a substring can never select a different session.
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -20,6 +21,12 @@ class TmuxResult:
     stdout: bytes
     stderr: bytes
     returncode: int
+
+
+@dataclass(frozen=True)
+class TmuxPane:
+    pane_id: str
+    pane_pid: int
 
 
 class TmuxClient:
@@ -66,6 +73,14 @@ class TmuxClient:
     def target(session_name: str) -> str:
         return f"={session_name}:"
 
+    @classmethod
+    def pane_target(cls, session_name: str, pane_id: str | None) -> str:
+        if pane_id is None:
+            return cls.target(session_name)
+        if re.fullmatch(r"%[0-9]+", pane_id) is None:
+            raise TmuxError("tmux returned an invalid pane id")
+        return pane_id
+
     async def list_sessions(self) -> list[str]:
         result = await self._run("list-sessions", "-F", "#{session_name}", check=False)
         if result.returncode != 0:
@@ -93,7 +108,27 @@ class TmuxClient:
             raise TmuxError(f"tmux returned an invalid pane pid for {session_name!r}")
         return int(raw)
 
-    async def capture_pane(self, session_name: str, *, lines: int = 100) -> str:
+    async def list_panes(self, session_name: str) -> list[TmuxPane]:
+        result = await self._run(
+            "list-panes",
+            "-s",
+            "-t",
+            self.target(session_name),
+            "-F",
+            "#{pane_id}\t#{pane_pid}",
+        )
+        panes: list[TmuxPane] = []
+        for line in result.stdout.decode("utf-8", errors="replace").splitlines():
+            pane_id, separator, raw_pid = line.partition("\t")
+            if separator and re.fullmatch(r"%[0-9]+", pane_id) and raw_pid.isdigit():
+                panes.append(TmuxPane(pane_id=pane_id, pane_pid=int(raw_pid)))
+        if not panes:
+            raise TmuxError(f"tmux returned no panes for {session_name!r}")
+        return panes
+
+    async def capture_pane(
+        self, session_name: str, *, lines: int = 100, pane_id: str | None = None
+    ) -> str:
         result = await self._run(
             "capture-pane",
             "-p",
@@ -101,11 +136,11 @@ class TmuxClient:
             "-S",
             f"-{max(1, lines)}",
             "-t",
-            self.target(session_name),
+            self.pane_target(session_name, pane_id),
         )
         return result.stdout.decode("utf-8", errors="replace")
 
-    async def paste(self, session_name: str, text: str) -> None:
+    async def paste(self, session_name: str, text: str, *, pane_id: str | None = None) -> None:
         buffer_name = f"dispatcher-{uuid.uuid4().hex}"
         sanitized = text.replace("\x1b[201~", "")
         loaded = False
@@ -124,11 +159,11 @@ class TmuxClient:
                 "-b",
                 buffer_name,
                 "-t",
-                self.target(session_name),
+                self.pane_target(session_name, pane_id),
             )
         finally:
             if loaded:
                 await self._run("delete-buffer", "-b", buffer_name, check=False)
 
-    async def send_enter(self, session_name: str) -> None:
-        await self._run("send-keys", "-t", self.target(session_name), "Enter")
+    async def send_enter(self, session_name: str, *, pane_id: str | None = None) -> None:
+        await self._run("send-keys", "-t", self.pane_target(session_name, pane_id), "Enter")
